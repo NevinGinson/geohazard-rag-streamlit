@@ -3,12 +3,36 @@ import re
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict
 
-# .env
+# .env (local only; Streamlit Cloud uses st.secrets)
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except Exception:
     pass
+
+# Streamlit secrets (Cloud) with fallback to env
+try:
+    import streamlit as st  # available when running Streamlit
+    _SECRETS = st.secrets
+except Exception:
+    _SECRETS = {}
+
+def _get_setting(name: str, default: str = "") -> str:
+    """
+    Priority:
+      1) Streamlit secrets (Cloud)
+      2) Environment variables
+      3) Default
+    """
+    try:
+        val = str(_SECRETS.get(name, "")).strip()
+        if val:
+            return val
+    except Exception:
+        pass
+    val = os.getenv(name, "").strip()
+    return val if val else default
+
 
 # Vector DB
 try:
@@ -33,39 +57,42 @@ from langchain_core.documents import Document
 from langchain_groq import ChatGroq
 
 
-# -------------------- Config (from .env) --------------------
-DOCS_DIR = os.getenv("DOCS_DIR", "").strip() or str(Path.cwd() / "docs")
-CHROMA_DIR = os.getenv("CHROMA_DIR", "").strip() or str(Path.cwd() / "chroma_db")
+# -------------------- Config (secrets/env) --------------------
+DOCS_DIR = _get_setting("DOCS_DIR", str(Path.cwd() / "docs"))
+CHROMA_DIR = _get_setting("CHROMA_DIR", str(Path.cwd() / "chroma_db"))
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
-EMBED_MODEL = os.getenv("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2").strip()
+GROQ_API_KEY = _get_setting("GROQ_API_KEY", "")
+GROQ_MODEL = _get_setting("GROQ_MODEL", "llama-3.3-70b-versatile")
+EMBED_MODEL = _get_setting("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 
-CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1600"))
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "250"))
+CHUNK_SIZE = int(_get_setting("CHUNK_SIZE", "1600"))
+CHUNK_OVERLAP = int(_get_setting("CHUNK_OVERLAP", "250"))
 
-TOP_K = int(os.getenv("TOP_K", "10"))
-FETCH_K = int(os.getenv("FETCH_K", "60"))
-LAMBDA_MULT = float(os.getenv("LAMBDA_MULT", "0.5"))
+TOP_K = int(_get_setting("TOP_K", "10"))
+FETCH_K = int(_get_setting("FETCH_K", "60"))
+LAMBDA_MULT = float(_get_setting("LAMBDA_MULT", "0.5"))
 
-MIN_SOURCES = int(os.getenv("MIN_SOURCES", "2"))
-TEMPERATURE = float(os.getenv("TEMPERATURE", "0.0"))
+MIN_SOURCES = int(_get_setting("MIN_SOURCES", "2"))
+TEMPERATURE = float(_get_setting("TEMPERATURE", "0.0"))
 
-AUTO_FILTER_TOP_SOURCES = int(os.getenv("AUTO_FILTER_TOP_SOURCES", "2"))
-AUTO_FILTER_MIN_HITS = int(os.getenv("AUTO_FILTER_MIN_HITS", "2"))
+AUTO_FILTER_TOP_SOURCES = int(_get_setting("AUTO_FILTER_TOP_SOURCES", "2"))
+AUTO_FILTER_MIN_HITS = int(_get_setting("AUTO_FILTER_MIN_HITS", "2"))
 
-MAX_CONTEXT_CHUNKS = int(os.getenv("MAX_CONTEXT_CHUNKS", "8"))
+MAX_CONTEXT_CHUNKS = int(_get_setting("MAX_CONTEXT_CHUNKS", "8"))
 
-EVIDENCE_SNIPPETS = int(os.getenv("EVIDENCE_SNIPPETS", "2"))
-EVIDENCE_SNIPPET_CHARS = int(os.getenv("EVIDENCE_SNIPPET_CHARS", "220"))
+EVIDENCE_SNIPPETS = int(_get_setting("EVIDENCE_SNIPPETS", "2"))
+EVIDENCE_SNIPPET_CHARS = int(_get_setting("EVIDENCE_SNIPPET_CHARS", "220"))
 
-FOLLOWUP_USE_LAST_SOURCES = os.getenv("FOLLOWUP_USE_LAST_SOURCES", "1").strip() == "1"
+FOLLOWUP_USE_LAST_SOURCES = _get_setting("FOLLOWUP_USE_LAST_SOURCES", "1") == "1"
 
 
 # -------------------- Helpers --------------------
 def ensure_api_key():
     if not GROQ_API_KEY:
-        raise RuntimeError("GROQ_API_KEY missing. Put it in .env as GROQ_API_KEY=gsk_....")
+        raise RuntimeError(
+            "GROQ_API_KEY missing. Set it in Streamlit Secrets (App settings -> Secrets) "
+            "or as an environment variable."
+        )
     if not GROQ_API_KEY.startswith("gsk_"):
         raise RuntimeError("GROQ_API_KEY looks invalid (should start with gsk_).")
 

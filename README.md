@@ -10,7 +10,7 @@ This project integrates semantic document retrieval with domain-specific hazard 
 ## Live Application
 
 Streamlit Deployment:  
-https://YOUR-STREAMLIT-URL.streamlit.app  
+https://geohazard-rag-app-ymnjwtmwtemrv7tvsmfqlq.streamlit.app/ 
 
 (Replace with your deployed application link.)
 

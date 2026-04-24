@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+
+import os
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
 """
 geo.py — Local Geohazard RAG (Mac/Windows)
 
@@ -24,7 +28,6 @@ Then:
   python geo.py
 """
 
-import os
 import re
 import argparse
 from pathlib import Path
@@ -102,11 +105,13 @@ def die(msg: str, code: int = 1):
     print(msg)
     raise SystemExit(code)
 
+
 def ensure_api_key():
     if not GROQ_API_KEY:
         die("❌ GROQ_API_KEY missing. Put it in .env as GROQ_API_KEY=gsk_....")
     if not GROQ_API_KEY.startswith("gsk_"):
         die("❌ GROQ_API_KEY looks invalid (should start with gsk_).")
+
 
 def list_pdfs(folder: str, only_pdfs: Optional[List[str]] = None) -> List[Path]:
     p = Path(folder)
@@ -125,6 +130,7 @@ def list_pdfs(folder: str, only_pdfs: Optional[List[str]] = None) -> List[Path]:
 
     return pdfs
 
+
 def load_pdf(path: str) -> List[Document]:
     """Prefer PyMuPDF (better metadata), fallback to PDFMiner."""
     try:
@@ -138,6 +144,7 @@ def load_pdf(path: str) -> List[Document]:
         d.metadata["source"] = src
     return docs
 
+
 def split_docs(raw_docs: List[Document]) -> List[Document]:
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
@@ -145,6 +152,7 @@ def split_docs(raw_docs: List[Document]) -> List[Document]:
         separators=["\n\n", "\n", " ", ""],
     )
     return splitter.split_documents(raw_docs)
+
 
 def build_or_load_chroma(chroma_dir: str, docs: Optional[List[Document]], rebuild: bool) -> Chroma:
     embed = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
@@ -168,6 +176,7 @@ def build_or_load_chroma(chroma_dir: str, docs: Optional[List[Document]], rebuil
     print("✅ Index built.")
     return vs
 
+
 def make_retriever(vs: Chroma, source_allowlist: Optional[List[str]] = None):
     """MMR retriever + optional source filter."""
     search_kwargs = {
@@ -179,6 +188,7 @@ def make_retriever(vs: Chroma, source_allowlist: Optional[List[str]] = None):
         search_kwargs["filter"] = {"source": {"$in": source_allowlist}}
     return vs.as_retriever(search_type="mmr", search_kwargs=search_kwargs)
 
+
 def retrieve_docs(retriever, query: str) -> List[Document]:
     """New-style retriever call (LC 0.2+)."""
     try:
@@ -186,12 +196,14 @@ def retrieve_docs(retriever, query: str) -> List[Document]:
     except Exception:
         return retriever.get_relevant_documents(query)
 
+
 def extract_usepdf(query: str) -> Tuple[Optional[str], str]:
     """usepdf:<filename.pdf> <question>"""
     m = re.match(r"^\s*usepdf\s*:\s*([^\s]+)\s+(.*)$", query.strip(), flags=re.IGNORECASE)
     if not m:
         return None, query.strip()
     return m.group(1).strip(), m.group(2).strip()
+
 
 def extract_prefix_mode(query: str) -> Tuple[Optional[str], str]:
     """
@@ -209,16 +221,32 @@ def extract_prefix_mode(query: str) -> Tuple[Optional[str], str]:
         return None, query.strip()
     return m.group(1).lower(), m.group(2).strip()
 
+
 def expand_query_if_needed(q: str) -> str:
     """Light recall boost for broad queries."""
     ql = q.lower()
-    broad = any(x in ql for x in ["list", "main", "overview", "covered", "hazards", "risk", "mitigation", "monitoring", "susceptibility"])
+    broad = any(
+        x in ql
+        for x in [
+            "list",
+            "main",
+            "overview",
+            "covered",
+            "hazards",
+            "risk",
+            "mitigation",
+            "monitoring",
+            "susceptibility",
+        ]
+    )
     if not broad:
         return q
     extra = (
-        " Include hazard categories and subtypes, triggers, susceptibility, mapping, monitoring, mitigation, and any referenced tables/figures."
+        " Include hazard categories and subtypes, triggers, susceptibility, mapping, "
+        "monitoring, mitigation, and any referenced tables/figures."
     )
     return q + extra
+
 
 def normalize_page(meta: dict) -> str:
     """Display page as 1-indexed if int (many loaders store 0-index)."""
@@ -229,6 +257,7 @@ def normalize_page(meta: dict) -> str:
         return "?"
     return str(page)
 
+
 def tally_sources(docs: List[Document]) -> Dict[str, int]:
     counts: Dict[str, int] = {}
     for d in docs:
@@ -236,10 +265,12 @@ def tally_sources(docs: List[Document]) -> Dict[str, int]:
         counts[src] = counts.get(src, 0) + 1
     return counts
 
+
 def choose_top_sources(counts: Dict[str, int], top_n: int, min_hits: int) -> List[str]:
     ranked = sorted(counts.items(), key=lambda x: x[1], reverse=True)
     picked = [src for src, c in ranked if c >= min_hits][:top_n]
     return picked
+
 
 def build_context(docs: List[Document], max_chunks: int, cite: bool) -> str:
     picked = docs[:max_chunks]
@@ -251,6 +282,7 @@ def build_context(docs: List[Document], max_chunks: int, cite: bool) -> str:
         header = f"[{src} p.{p}] " if cite else f"[{src}] "
         parts.append(header + d.page_content)
     return "\n\n---\n\n".join(parts)
+
 
 def make_evidence_snippets(docs: List[Document], n: int) -> List[str]:
     out = []
@@ -265,6 +297,7 @@ def make_evidence_snippets(docs: List[Document], n: int) -> List[str]:
         out.append(f"- {src} (p.{p}): “{text}”")
     return out
 
+
 def confidence_from_retrieval(docs: List[Document], chosen_sources: List[str]) -> str:
     """
     Simple heuristic confidence:
@@ -277,6 +310,7 @@ def confidence_from_retrieval(docs: List[Document], chosen_sources: List[str]) -
     if chosen_sources:
         return "High"
     return "Medium"
+
 
 def build_prompt(context: str, question: str, mode: str, cite: bool) -> str:
     """
@@ -294,7 +328,7 @@ def build_prompt(context: str, question: str, mode: str, cite: bool) -> str:
         "ops": "Answer as an operational checklist: Triggers, Where likely, Monitoring, Immediate actions, Mitigation, Stakeholders.",
         "deep": "Answer with detail and structure. Still avoid filler.",
         "ask": "Do NOT answer yet. Ask up to 3 clarifying questions that would let you answer correctly using the PDFs.",
-        "default": "Answer with clear bullets + short headings."
+        "default": "Answer with clear bullets + short headings.",
     }.get(mode, "Answer with clear bullets + short headings.")
 
     return f"""
@@ -316,6 +350,7 @@ CONTEXT:
 {context}
 """.strip()
 
+
 def format_sources(srcs: List[Document], limit: int = 12) -> str:
     if not srcs:
         return "Sources: (none)"
@@ -333,6 +368,7 @@ def format_sources(srcs: List[Document], limit: int = 12) -> str:
         if len(lines) - 1 >= limit:
             break
     return "\n".join(lines)
+
 
 def answer_question(
     llm: ChatGroq,
@@ -364,7 +400,6 @@ def answer_question(
         if FOLLOWUP_USE_LAST_SOURCES and last_sources:
             retriever_last = make_retriever(vs, source_allowlist=last_sources)
             docs_last = retrieve_docs(retriever_last, q2)
-            # If it retrieves enough, accept it as the route
             if docs_last and len(docs_last) >= MIN_SOURCES:
                 docs = docs_last
                 chosen_sources = list(last_sources)
@@ -391,7 +426,7 @@ def answer_question(
                 retriever_b = make_retriever(vs, source_allowlist=chosen_sources)
                 docs = retrieve_docs(retriever_b, q2)
             else:
-                docs = docs_a  # fallback
+                docs = docs_a
 
     # Strict brake
     if strict and (not docs or len(docs) < MIN_SOURCES):
@@ -400,7 +435,9 @@ def answer_question(
     context = build_context(docs, max_chunks=MAX_CONTEXT_CHUNKS, cite=cite)
     prompt = build_prompt(context=context, question=q, mode=mode, cite=cite)
     resp = llm.invoke(prompt)
-    return resp.content.strip(), docs, chosen_sources
+
+    answer_text = resp.content if hasattr(resp, "content") else str(resp)
+    return answer_text.strip(), docs, chosen_sources
 
 
 # -------------------- Main --------------------
@@ -503,11 +540,11 @@ def main():
         if chosen_sources:
             last_chosen_sources = list(chosen_sources)
 
-        # Show routing info (useful during dev; you can comment out later)
+        # Show routing info
         if chosen_sources and not forced_pdf:
             print(f"\n[auto-selected PDFs] {', '.join(chosen_sources)}\n")
 
-        # Confidence + Evidence snippets (especially useful when citations are OFF)
+        # Confidence + Evidence snippets
         conf = confidence_from_retrieval(docs_used, chosen_sources)
         print(f"Confidence: {conf}")
 
@@ -521,7 +558,7 @@ def main():
 
         print("Answer:\n" + ans + "\n")
 
-        # Show sources list only when citations are ON (otherwise keep it fast)
+        # Show sources list only when citations are ON
         if cite:
             print(format_sources(docs_used, limit=12))
             print()
